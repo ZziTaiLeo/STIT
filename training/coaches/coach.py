@@ -25,7 +25,7 @@ class Coach:
 
         if hyperparameters.first_inv_type == 'e4e':
             self.e4e_inversion_net = initialize_e4e_wplus()
-
+        #将载入的图片裁剪为（256，256）
         self.e4e_image_transform = transforms.Resize((256, 256))
 
         # Initialize loss
@@ -40,11 +40,12 @@ class Coach:
     def restart_training(self):
 
         # Initialize networks
+        #加载原始生成器
         self.G = load_old_G()
         self.G.requires_grad_(True)
 
         self.original_G = load_old_G()
-
+        #？加载了什么
         self.space_regularizer = SpaceRegularizer(self.original_G, self.lpips_loss)
         self.optimizer = self.configure_optimizers()
 
@@ -62,6 +63,7 @@ class Coach:
         return w_pivot
 
     def configure_optimizers(self):
+        # 更新的参数是G的参数
         optimizer = torch.optim.Adam(self.G.parameters(), betas=(hyperparameters.pti_adam_beta1, 0.999),
                                      lr=hyperparameters.pti_learning_rate)
 
@@ -71,7 +73,7 @@ class Coach:
         loss = 0.0
 
         if hyperparameters.pt_l2_lambda > 0:
-            l2_loss_val = l2_loss.l2_loss(generated_images, real_images)
+            l2_loss_val = l2_loss.l2_loss(generated_images, real_images)#MSE
             if self.use_wandb:
                 wandb.log({f'losses/MSE_loss_val_{log_name}': l2_loss_val.detach().cpu()}, commit=False)
             loss += l2_loss_val * hyperparameters.pt_l2_lambda
@@ -81,7 +83,7 @@ class Coach:
             if self.use_wandb:
                 wandb.log({f'losses/LPIPS_loss_val_{log_name}': loss_lpips.detach().cpu()}, commit=False)
             loss += loss_lpips * hyperparameters.pt_lpips_lambda
-
+        #？
         if use_ball_holder and hyperparameters.use_locality_regularization:
             ball_holder_loss_val = self.space_regularizer.space_regularizer_loss(new_G, w_batch, log_name,
                                                                                  use_wandb=self.use_wandb)
@@ -113,10 +115,12 @@ class Coach:
         print('Calculating initial inversions')
         for fname, image in tqdm(self.dataset):
             image_name = fname
+
+            #e4e出来的latent code 作为pivot
             w_pivot = self.get_inversion(image_name, image)
             w_pivots.append(w_pivot)
             images.append((image_name, image))
-
+        #微调 G
         self.G = self.G.to(global_config.device)
 
         print('Fine tuning generator')
@@ -136,10 +140,11 @@ class Coach:
             for data, w_pivot in zip(images, w_pivots):
                 image_name, image = data
                 image = image.unsqueeze(0)
-
+                #一个batch的图片
                 real_images_batch = image.to(global_config.device)
-
+                #通过pivot生成图片
                 generated_images = self.forward(w_pivot)
+                #
                 loss, l2_loss_val, loss_lpips = self.calc_loss(generated_images, real_images_batch, image_name,
                                                                self.G, use_ball_holder, w_pivot)
 
@@ -150,7 +155,7 @@ class Coach:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-
+                #？
                 use_ball_holder = global_config.training_step % hyperparameters.locality_regularization_interval == 0
 
                 global_config.training_step += 1

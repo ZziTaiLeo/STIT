@@ -11,12 +11,14 @@ class SpaceRegularizer:
         self.original_G = original_G
         self.morphing_regularizer_alpha = hyperparameters.regularizer_alpha
         self.lpips_loss = lpips_net
-
+    #获取操作后的w
     def get_morphed_w_code(self, new_w_code, fixed_w):
-        interpolation_direction = new_w_code - fixed_w
+        interpolation_direction = new_w_code - fixed_w  #相减得到latent code变化的方向。
         interpolation_direction_norm = torch.norm(interpolation_direction, p=2)
+        #统一各维度变化的长度？  可以debug看下
         direction_to_move = hyperparameters.regularizer_alpha * interpolation_direction / interpolation_direction_norm
         result_w = fixed_w + direction_to_move
+        #
         self.morphing_regularizer_alpha * fixed_w + (1 - self.morphing_regularizer_alpha) * new_w_code
 
         return result_w

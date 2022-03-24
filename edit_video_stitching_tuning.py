@@ -61,11 +61,16 @@ def create_masks(border_pixels, mask, inner_dilation=0, outer_dilation=0, whole_
 def calc_masks(inversion, segmentation_model, border_pixels, inner_mask_dilation, outer_mask_dilation,
                whole_image_border):
     background_classes = [0, 18, 16]
+    #inversion(1,3,1024,1024)->(1,3,512,512)
     inversion_resized = torch.cat([F.interpolate(inversion, (512, 512), mode='nearest')])
+    #标准化， 但均值和方差的值如何取得？
     inversion_normalized = transforms.functional.normalize(inversion_resized.clip(-1, 1).add(1).div(2),
                                                            [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    #图片过一遍模型就达到语义分割了吗？ 建议阅读该segment原文
     segmentation = segmentation_model(inversion_normalized)[0].argmax(dim=1, keepdim=True)
+    #判断前景
     is_foreground = logical_and_reduce(*[segmentation != cls for cls in background_classes])
+    #mask转化为float
     foreground_mask = is_foreground.float()
     content_mask, border_mask, full_mask = create_masks(border_pixels // 2, foreground_mask, inner_mask_dilation // 2,
                                                         outer_mask_dilation // 2, whole_image_border)
@@ -110,6 +115,7 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
     orig_files = make_dataset(input_folder)
     orig_files = orig_files[start_frame:end_frame]
     segmentation_model = models.seg_model_2.BiSeNet(19).eval().cuda().requires_grad_(False)
+    #79999_iter.pth
     segmentation_model.load_state_dict(torch.load(paths_config.segmentation_model_path))
 
     gen, orig_gen, pivots, quads = load_generators(run_name)
@@ -127,13 +133,14 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
     os.makedirs(output_folder, exist_ok=True)
     with open(os.path.join(output_folder, 'opts.json'), 'w') as f:
         json.dump(config, f)
-
+    #latent_editor 加载interfaceGAN 编辑属性方向的向量
     latent_editor = LatentEditor()
     if edit_type == 'styleclip_global':
         edits, is_style_input = latent_editor.get_styleclip_global_edits(
             pivots, neutral_class, target_class, beta, edit_range, gen, edit_name
         )
     else:
+    #interfaceGAN计算
         edits, is_style_input = latent_editor.get_interfacegan_edits(pivots, edit_name, edit_range)
 
     for edits_list, direction, factor in edits:
@@ -148,11 +155,12 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
 
             edited_tensor = gen.synthesis.forward(w_edit_interp, style_input=is_style_input, noise_mode='const',
                                                   force_fp32=True)
-
+            #反演inversion
             inversion = gen.synthesis(w_interp, noise_mode='const', force_fp32=True)
             border_pixels = outer_mask_dilation
-
+            #将crop转成向量
             crop_tensor = to_tensor(crop)[None].mul(2).sub(1).cuda()
+            #计算内外mask
             content_mask, border_mask, full_mask = calc_masks(crop_tensor, segmentation_model, border_pixels,
                                                               inner_mask_dilation, outer_mask_dilation,
                                                               whole_image_border)
@@ -171,7 +179,8 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
 
             optimized_image = tensor2pil(optimized_tensor)
             edited_image = tensor2pil(edited_tensor)
-
+            ### 以上和edit_video相同
+            ###以下准备stitching
             full_mask_image = tensor2pil(full_mask.mul(2).sub(1))
 
             edit_projection = paste_image_mask(inverse_transform, edited_image, orig_image, full_mask_image, radius=0)
@@ -185,6 +194,7 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
             folder_name = f'{direction}/{factor}'
 
             video_frame = concat_images_horizontally(orig_image, edit_projection, optimized_projection)
+            #拼接输出视频
             video_frame = add_texts_to_image_vertical(['original', 'mask', 'stitching tuning'], video_frame)
 
             video_frames[folder_name].append(video_frame)
@@ -281,12 +291,14 @@ def optimize_border(G: torch.nn.Module, border_image, content_image, w: torch.Te
         parameters += list(G.parameters())
     if optimize_wplus:
         parameters += [latent]
-
+    #还是优化生成器
     optimizer = torch.optim.Adam(parameters, hyperparameters.stitching_tuning_lr)
+    #微调生成器
     for step in trange(num_steps, leave=False):
         generated_image = G.synthesis(latent, style_input=is_style_input, noise_mode='const', force_fp32=True)
-
+        #对应Lbi，boder_image对应crop的原图，border_loss表示缝合的逼真程度
         border_loss = masked_l2(generated_image, border_image, border_mask, loss_l2)
+        #损失函数
         loss = border_loss + content_loss_lambda * masked_l2(generated_image, content_image, content_mask, loss_l2)
         if border_loss < border_loss_threshold:
             break
@@ -303,8 +315,11 @@ def optimize_border(G: torch.nn.Module, border_image, content_image, w: torch.Te
 def masked_l2(input, target, mask, loss_l2):
     loss = torch.nn.MSELoss if loss_l2 else torch.nn.L1Loss
     criterion = loss(reduction='none')
+    #对于Lb,i_loss，input是G生成的，target是原图。
+    #对于Lm,i_loss ,input 代表经过pivot微调后的G产生的图片向量；code经过st微调后的G为target
     masked_input = input * mask
     masked_target = target * mask
+    #计算两者的loss
     error = criterion(masked_input, masked_target)
     return error.sum() / mask.sum()
 

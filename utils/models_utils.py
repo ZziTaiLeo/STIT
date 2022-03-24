@@ -18,10 +18,15 @@ def save_tuned_G(generator, pivots, quads, run_id):
 
 def load_tuned_G(run_id):
     new_G_path = f'{paths_config.checkpoints_dir}/model_{run_id}.pt'
+    #测试
+    temp_G_Path = f'{paths_config.checkpoints_dir}/model_hengda_png.pt'
     with open(new_G_path, 'rb') as f:
         checkpoint = torch.load(f)
-
-    new_G, pivots, quads = checkpoint['generator'], checkpoint['pivots'], checkpoint['quads']
+    with open(temp_G_Path,'rb') as f:
+        temp_checkpoint = torch.load(f)
+    #new_G, pivots, quads = checkpoint['generator'], checkpoint['pivots'], checkpoint['quads']
+    pivots, quads = checkpoint['pivots'], checkpoint['quads']
+    new_G = temp_checkpoint['generator']
     new_G = new_G.float().to(global_config.device).eval().requires_grad_(False)
     pivots = pivots.float().to(global_config.device)
     return new_G, pivots, quads
@@ -56,7 +61,7 @@ def load_from_pkl_model(tuned):
     gen = gen.eval().cuda().requires_grad_(False)
     return gen
 
-
+    #加载生成器，
 def load_generators(run_id):
     tuned, pivots, quads = load_tuned_G(run_id=run_id)
     original = load_old_G()

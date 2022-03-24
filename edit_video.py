@@ -63,8 +63,9 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
     image_size = 1024
 
     segmentation_model = models.seg_model_2.BiSeNet(19).eval().cuda().requires_grad_(False)
+    # 加载79999_iter.pth
     segmentation_model.load_state_dict(torch.load(paths_config.segmentation_model_path))
-
+    # 加载train.py所保存的checkpoints
     gen, orig_gen, pivots, quads = load_generators(run_name)
 
     crops, orig_images = crop_faces_by_quads(image_size, orig_files, quads)
@@ -72,8 +73,9 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
     inverse_transforms = [
         calc_alignment_coefficients(quad + 0.5, [[0, 0], [0, image_size], [image_size, image_size], [image_size, 0]])
         for quad in quads]
-
+    # ?
     if freeze_fine_layers is not None:
+        # 计算
         pivots_mean = torch.mean(pivots, dim=0, keepdim=True).expand_as(pivots)
         pivots = torch.cat([pivots[:, :freeze_fine_layers], pivots_mean[:, freeze_fine_layers:]], dim=1)
 
@@ -82,14 +84,17 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
         json.dump(config, f)
 
     latent_editor = LatentEditor()
+    # edit_type==interfaceGAN
     if edit_type == 'styleclip_global':
         edits, is_style_input = latent_editor.get_styleclip_global_edits(
             pivots, neutral_class, target_class, beta, edit_range, gen, edit_name
         )
     else:
+        # is_style_input =  False
         edits, is_style_input = latent_editor.get_interfacegan_edits(pivots, edit_name, edit_range)
 
     for edits_list, direction, factor in edits:
+
         video_frames = defaultdict(list)
         for i, (orig_image, crop, quad, inverse_transform) in \
                 tqdm(enumerate(zip(orig_images, crops, quads, inverse_transforms)), total=len(orig_images)):
@@ -109,7 +114,7 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
                 mask = tensor2pil(mask.mul(2).sub(1))
             else:
                 inversion = gen.synthesis(w_pivot, noise_mode='const', force_fp32=False)
-
+            # ivnersion是PIL文件
             inversion = tensor2pil(inversion)
             edited_image = tensor2pil(edited_tensor)
             if mask is not None:
@@ -121,16 +126,20 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
                 inversion_projection = paste_image(inverse_transform, inversion, orig_image)
                 edit_projection = paste_image(inverse_transform, edited_image, orig_image)
             folder_name = f'{direction}/{factor}'
+            # 默认是FALSE
             if output_frames:
                 frames_dir = os.path.join(output_folder, 'frames', folder_name)
                 os.makedirs(frames_dir, exist_ok=True)
                 save_image(inversion_projection, os.path.join(frames_dir, f'inversion_{i:04d}.jpeg'))
                 save_image(orig_image, os.path.join(frames_dir, f'source_{i:04d}.jpeg'))
                 save_image(edit_projection, os.path.join(frames_dir, f'edit_{i:04d}.jpeg'))
+            # 水平拼接三种图片
             video_frame = concat_images_horizontally(orig_image, inversion_projection, edit_projection)
+            # 在下方标注文字标识
             video_frame = add_texts_to_image_vertical(['original', 'inversion', 'edit'], video_frame)
+            # 拼装
             video_frames[folder_name].append(video_frame)
-
+        # 将帧组装成视频
         for folder_name, frames in video_frames.items():
             folder_path = os.path.join(output_folder, folder_name)
             os.makedirs(folder_path, exist_ok=True)

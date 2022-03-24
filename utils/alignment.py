@@ -60,7 +60,7 @@ def align_face(filepath_or_image, predictor, output_size, detector=None,
     # Return aligned image.
     return img
 
-
+    #crop沿用e4e的裁剪方式
 def crop_image(filepath, output_size, quad, enable_padding=False):
     x = (quad[3] - quad[1]) / 2
     qsize = np.hypot(*x) * 2
@@ -164,6 +164,7 @@ def crop_faces(IMAGE_SIZE, files, scale, center_sigma=0.0, xy_sigma=0.0, use_fa=
     cs = np.stack(cs)
     xs = np.stack(xs)
     ys = np.stack(ys)
+    # 低通滤波器
     if center_sigma != 0:
         cs = gaussian_filter1d(cs, sigma=center_sigma, axis=0)
 
@@ -189,15 +190,16 @@ def crop_faces_by_quads(IMAGE_SIZE, files, quads):
         crops.append(crop)
     return crops, orig_images
 
-
+    #pa是原crop的大小，pb是图片大小。但这里不会造成
 def calc_alignment_coefficients(pa, pb):
     matrix = []
     for p1, p2 in zip(pa, pb):
+        #（4，2） -》（1，8）
         matrix.append([p1[0], p1[1], 1, 0, 0, 0, -p2[0] * p1[0], -p2[0] * p1[1]])
         matrix.append([0, 0, 0, p1[0], p1[1], 1, -p2[1] * p1[0], -p2[1] * p1[1]])
 
     a = np.matrix(matrix, dtype=float)
     b = np.array(pb).reshape(8)
-
+    #
     res = np.dot(np.linalg.inv(a.T * a) * a.T, b)
     return np.array(res).reshape(8)

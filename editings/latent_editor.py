@@ -16,18 +16,22 @@ class LatentEditor:
         self.interfacegan_directions_tensors = {name: torch.from_numpy(arr).cuda()[0, None]
                                                 for name, arr in interfacegan_directions.items()}
 
-
+    #使用interfaceGAN编辑属性
     def get_interfacegan_edits(self, orig_w, edit_names, edit_range):
         edits = []
         for edit_name, direction in self.interfacegan_directions_tensors.items():
+            #interfaceGAN编辑属性有限
             if edit_name not in edit_names:
                 continue
+            #np.linsapce 对范围区间均匀分割。
+
             for factor in np.linspace(*edit_range):
+                # factor是强度系数，编辑属性思路是：w_edit = ori_w + factor* direction
                 w_edit = self._apply_interfacegan(orig_w, direction, factor / 2)
                 edits.append((w_edit, edit_name, factor))
 
         return edits, False
-
+    #使用styleCLIP_global_eidts编辑属性
     @staticmethod
     def get_styleclip_global_edits(orig_w, neutral_class, target_class, beta, edit_range, generator, edit_name, use_stylespace_std=False):
         affine_layers = get_affine_layers(generator.synthesis)

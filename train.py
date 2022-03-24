@@ -19,7 +19,7 @@ from torchvision import transforms
 from configs import paths_config, global_config, hyperparameters
 from utils.alignment import crop_faces, calc_alignment_coefficients
 
-
+#最后以jpg方式保存图片
 def save_image(image: Image.Image, output_folder, image_name, image_index, ext='jpg'):
     if ext == 'jpeg' or ext == 'jpg':
         image = image.convert('RGB')
@@ -29,8 +29,9 @@ def save_image(image: Image.Image, output_folder, image_name, image_index, ext='
 
 
 def paste_image(coeffs, img, orig_image):
+    #coeffs系数表示变化系数，
     pasted_image = orig_image.copy().convert('RGBA')
-    projected = img.convert('RGBA').transform(orig_image.size, Image.PERSPECTIVE, coeffs, Image.BILINEAR)
+    projected = img.convert('RGBA').transform(orig_image.size, Image.PERSPECTIVE, coeffs, Image.BILINEAR)#透视变换到投影面
     pasted_image.paste(projected, (0, 0), mask=projected)
     return pasted_image
 
@@ -38,7 +39,7 @@ def paste_image(coeffs, img, orig_image):
 def to_pil_image(tensor: torch.Tensor) -> Image.Image:
     x = (tensor[0].permute(1, 2, 0) + 1) * 255 / 2
     x = x.detach().cpu().numpy()
-    x = np.rint(x).clip(0, 255).astype(np.uint8)
+    x = np.rint(x).clip(0, 255).astype(np.uint8) #使结果进入（0，255区间）
     return Image.fromarray(x)
 
 
@@ -53,10 +54,10 @@ def to_pil_image(tensor: torch.Tensor) -> Image.Image:
 @click.option('--num_pti_steps', default=300, type=int)
 @click.option('--l2_lambda', type=float, default=10.0)
 @click.option('--center_sigma', type=float, default=1.0)
-@click.option('--xy_sigma', type=float, default=3.0)
+@click.option('--xy_sigma', type=float, default=3.0) #用于crop人脸
 @click.option('--pti_learning_rate', type=float, default=3e-5)
 @click.option('--use_locality_reg/--no_locality_reg', type=bool, default=False)
-@click.option('--use_wandb/--no_wandb', type=bool, default=False)
+@click.option('--use_wandb/--no_wandb', type=bool, default=False)#？
 @click.option('--pti_adam_beta1', type=float, default=0.9)
 def main(**config):
     _main(**config, config=config)
@@ -78,6 +79,7 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
     print(f'Number of images: {len(files)}')
     image_size = 1024
     print('Aligning images')
+    #crops包含数据集
     crops, orig_images, quads = crop_faces(image_size, files, scale,
                                            center_sigma=center_sigma, xy_sigma=xy_sigma, use_fa=use_fa)
     print('Aligning completed')
@@ -85,17 +87,19 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
 
     ds = ImageListDataset(crops, transforms.Compose([
         transforms.ToTensor(),
+        #归一化  设定均值和标准差
+
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])]))
+    #Coach 优化G，最后返回的是所有图片的pivots
     coach = Coach(ds, use_wandb)
-
     ws = coach.train()
-
+    #保存微调后的G于/checkpoints
     save_tuned_G(coach.G, ws, quads, global_config.run_name)
 
     inverse_transforms = [
         calc_alignment_coefficients(quad + 0.5, [[0, 0], [0, image_size], [image_size, image_size], [image_size, 0]])
         for quad in quads]
-
+    #gen是微调好的G
     gen = coach.G.requires_grad_(False).eval()
 
     os.makedirs(output_folder, exist_ok=True)
@@ -113,7 +117,7 @@ def _main(input_folder, output_folder, start_frame, end_frame, run_name,
             pivot = coach.original_G.synthesis(w, noise_mode='const', force_fp32=True)
             inversion = to_pil_image(inversion)
             pivot = to_pil_image(pivot)
-
+        #inversion：latent code 经过微调后的G所产生的结果。
         save_image(pivot, output_folder, 'pivot', i)
         save_image(inversion, output_folder, 'inversion', i)
         save_image(paste_image(coeffs, pivot, orig_image), output_folder, 'pivot_projected', i)

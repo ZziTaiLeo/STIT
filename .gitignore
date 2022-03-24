@@ -153,3 +153,11 @@ dmypy.json
 cython_debug/
 
 .idea
+
+#images
+*.jpg
+*.png
+*.jpeg
+
+#videos
+*.mp4

@@ -118,11 +118,12 @@ def get_direction(neutral_class, target_class, beta, model=None, di=None):
         model, _ = clip.load("ViT-B/32")
 
     class_names = [neutral_class, target_class]
+    #计算text_embedding
     class_weights = zeroshot_classifier(model, class_names, imagenet_templates)
 
     dt = class_weights[:, 1] - class_weights[:, 0]
     dt = dt / dt.norm()
-    relevance = di @ dt
+    relevance = di @ dt  #‘@’是矩阵乘法运算，  这里对应的是styleClip计算关联
     mask = relevance.abs() > beta
     direction = relevance * mask
     direction_max = direction.abs().max()
